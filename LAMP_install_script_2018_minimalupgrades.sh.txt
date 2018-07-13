@@ -1,0 +1,184 @@
+#======MySQL+Apache+PHP+Wordpress Installation Script===========
+
+#------ Prepare Installation Tools ---------
+ulimit -s unlimited
+opkg update
+opkg install packagegroup-core-sdk-dev # developer tools, includes compiler
+
+# Python installation from source
+opkg remove python-dev --force-depends
+wget https://www.python.org/ftp/python/3.7.0/Python-3.7.0.tgz
+tar -xvf Python-3.7.0.tgz
+cd Python-3.7.0
+./configure --enable-shared --prefix=/usr/local LDFLAGS="-Wl,--rpath=/usr/local/lib"
+make
+make install
+cd
+
+#---------- MariaDB -----------
+opkg install mariadb
+
+# MySQL Client Library
+opkg install libmysqlclient-dev
+opkg install libmysqlclient-r-dev
+
+# Can also try MariaDB from source:
+# https://downloads.mariadb.org/f/mariadb-10.2.14/source/mariadb-10.2.14.tar.gz/from/http%3A//ftp.utexas.edu/mariadb/?serve
+# MariaDB from source requires some other utilities, e.g. cmake.
+
+#----------- Apache -------------
+
+# Apache Portable Runtime Library
+wget http://mirror.metrocast.net/apache//apr/apr-1.6.3.tar.gz
+tar -xvf apr-1.6.3.tar.gz
+cd apr-1.6.3
+./configure
+make
+make install
+cd
+
+# Apache Portable Runtime Library Additional Tools
+wget http://mirror.metrocast.net/apache//apr/apr-util-1.6.1.tar.gz
+tar -xvf apr-util-1.6.1.tar.gz
+cd apr-util-1.6.1
+./configure --with-apr=/usr/local/apr
+make
+make install
+cd
+
+# Perl Compatible Regular Expressions
+wget -O pcre-8.42.tar.gz https://sourceforge.net/projects/pcre/files/pcre/8.42/pcre-8.42.tar.gz/download
+tar -xvf pcre-8.42.tar.gz
+cd pcre-8.42
+./configure
+make
+make install
+cd
+
+# Apache
+wget http://mirrors.sorengard.com/apache//httpd/httpd-2.4.33.tar.gz
+tar -xvf httpd-2.4.33.tar.gz
+cd httpd-2.4.33
+./configure
+make
+make install
+cd
+
+# Configure Apache to listen for requests on port 8081 instead of 80
+sed -i -e 's/80/8081/g' /usr/local/apache2/conf/httpd.conf
+cd
+
+# Add apache to startup scripts
+ln -s /usr/local/apache2/bin/apachectl /etc/init.d/apache2
+chmod +x /etc/init.d/apache2
+update-rc.d apache2 defaults 99
+# Auto-startup may not work once SSL certificate is enabled because of port conflict on 443 with NI Web Service.
+# Kill NI Web Service before starting Apache with /etc/init.d/apache2 start or /usr/local/apache2/bin/apachectl start
+
+
+#-----PHP Installation---------------
+
+# XML C Parser
+opkg remove libxml2 --force-depends
+wget ftp://xmlsoft.org/libxml2/libxml2-2.9.2.tar.gz
+tar -xvf libxml2-2.9.2.tar.gz
+cd libxml2-2.9.2
+./configure --enable-shared
+make 
+make install
+cp /usr/local/lib/libxml2.so /usr/lib/libxml2.so.2
+cd
+
+# PHP
+wget -O php-7.1.0.tar.gz http://us2.php.net/get/php-7.1.0.tar.gz/from/this/mirror
+tar -xvf php-7.1.0.tar.gz
+cd php-7.1.0
+./configure --with-apxs2=/usr/local/apache2/bin/apxs --with-mysqli=/usr/bin/mysql_config --with-zlib=/usr
+make
+make install
+cp php.ini-production /usr/local/lib/php.ini
+cd
+
+
+#----modify apache config to enable php support
+
+sed -i '$ a <FilesMatch "\.ph(p[2-6]?|tml)$">' /usr/local/apache2/conf/httpd.conf
+sed -i '$ a SetHandler application/x-httpd-php' /usr/local/apache2/conf/httpd.conf
+sed -i '$ a </FilesMatch>' /usr/local/apache2/conf/httpd.conf
+
+sed -i '233 a DirectoryIndex index.php' /usr/local/apache2/conf/httpd.conf
+
+#------create a simple php test script
+printf "<?php phpinfo(); ?>\n" > /usr/local/apache2/htdocs/test.php
+
+#------ WordPress ------------
+wget https://en-gb.wordpress.org/wordpress-4.9.6-en_GB.tar.gz --no-check-certificate
+tar -xvf wordpress-4.9.6-en_GB.tar.gz
+cd wordpress
+mv wp-config-sample.php  wp-config.php
+sed -i -e 's/database_name_here/wordpress/g' wp-config.php
+sed -i -e 's/username_here/admin/g' wp-config.php
+sed -i -e 's/password_here/password/g' wp-config.php
+
+#--------creat a symlink to follow to /home/admin/wordpress folder from the web
+ln -sf /home/admin/wordpress/* /usr/local/apache2/htdocs/
+rm /usr/local/apache2/htdocs/index.html
+
+#-------------------------------
+# START MARIADB HERE with mysqld
+# May need to open new terminal session
+# ------------------------------
+
+#----------Create WordPress Database--------
+# Must start MariaDB (process appears as mysql) to run following mysql commands.
+mysql -e "CREATE DATABASE wordpress;"
+mysql -e "GRANT ALL PRIVILEGES ON wordpress.* TO admin@localhost IDENTIFIED BY 'password';"
+mysql -e "FLUSH PRIVILEGES;"
+
+# ----------- Start Apache ------------
+/etc/init.d/apache2 start
+
+# -------- Configure WordPress ----------------
+# Now navigate in browser to http://<TARGET IP>:8081/wp-admin/install.php to configure WordPress
+
+------------------
+#----------SSL Installation-------------
+1. Generate self signed certificate
+2. Make sure the "common name" is the one you've specified in the "ServerName" in the httpd-ssl.conf
+3. Add certificate paths in httpd-ssl.conf
+
+4. Uncomment the following modules in httpd.conf
+#LoadModule socache_memcache_module modules/mod_socache_shmcb.so
+#LoadModule socache_shmcb_module modules/mod_socache_shmcb.so
+#LoadModule ssl_module modules/mod_ssl.so
+and the following config file:
+Include conf/extra/httpd-ssl.conf
+
+#Modules have different names now in httpd.conf
+# change source http to https in google geolocation script, put in htdocs
+
+
+--------
+mkdir /usr/local/apache2/ssl
+cd /usr/local/apache2/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout crio_ssl.key -out crio_ssl.crt
+--------
+
+./configure --enable-shared --with-system-expat --with-system-ffi --enable-unicode=ucs4
+./configure --prefix=/usr/local --enable-unicode=ucs4 --enable-shared LDFLAGS="-Wl,-rpath /usr/local/lib"
+
+http://stackoverflow.com/questions/16986952/how-to-ignore-local-python-when-building-python-from-source
+
+
+gcc -pthread -shared -Wl,-rpath /usr/local/lib build/temp.linux-x86_64-2.7/home/admin/Python-2.7.12/Modules/mathmodule.o Modules/_math.o -L/usr/local/lib -L. -lm -lpython2.7 -o build/lib.linux-x86_64-2.7/math.so
+/usr/lib/gcc/x86_64-nilrt-linux/4.8.2/../../../../x86_64-nilrt-linux/bin/ld: /usr/local/lib/libpython2.7.a(abstract.o): relocation R_X86_64_32S against `_Py_NotImplementedStruct' can not be used when making a shared object; recompile with -fPIC
+/usr/local/lib/libpython2.7.a: error adding symbols: Bad value
+collect2: error: ld returned 1 exit status
+
+
+make distclean
+./configure --enable-shared --prefix=/usr/local LDFLAGS="-Wl,--rpath=/usr/local/lib"
+
+#-----mysql debug commands--------
+# show all databases:  show databases;
+# show users: SELECT User FROM mysql.user;
