@@ -147,12 +147,36 @@ mysql -e "FLUSH PRIVILEGES;"
 2. Make sure the "common name" is the one you've specified in the "ServerName" in the httpd-ssl.conf
 3. Add certificate paths in httpd-ssl.conf
 
-4. Uncomment the following modules in httpd.conf
-#LoadModule socache_memcache_module modules/mod_socache_shmcb.so
-#LoadModule socache_shmcb_module modules/mod_socache_shmcb.so
-#LoadModule ssl_module modules/mod_ssl.so
-and the following config file:
+mkdir /usr/local/apache2/ssl
+cd /usr/local/apache2/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout crio_ssl.key -out crio_ssl.crt
+
+
+# Uncomment the following modules in httpd.conf:
+LoadModule socache_shmcb_module modules/mod_socache_shmcb.so
+LoadModule socache_memcache_module modules/mod_socache_memcache.so
+LoadModule ssl_module modules/mod_ssl.so
+
+#path of httpd-ssl.conf
+/usr/local/apache2/conf/extra/httpd-ssl.conf
+#line 124 add:
+DocumentRoot "/usr/local/apache2/htdocs"
+ServerName cRIO-Killer:443
+
+ErrorLog "/usr/local/apache2/logs/error_log"
+TransferLog "/usr/local/apache2/logs/access_log"
+
+#line 154
+SSLCertificateFile "/usr/local/apache2/ssl/crio_ssl.crt"
+
+
+SSLCertificateKeyFile "/usr/local/apache2/ssl/crio_ssl.key"
+
+
+
+and the following config file: by uncommenting
 Include conf/extra/httpd-ssl.conf
+# line 496
 
 #Modules have different names now in httpd.conf
 # change source http to https in google geolocation script, put in htdocs
@@ -163,6 +187,9 @@ mkdir /usr/local/apache2/ssl
 cd /usr/local/apache2/ssl
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout crio_ssl.key -out crio_ssl.crt
 --------
+
+/etc/init.d/apache2 restart
+
 
 ./configure --enable-shared --with-system-expat --with-system-ffi --enable-unicode=ucs4
 ./configure --prefix=/usr/local --enable-unicode=ucs4 --enable-shared LDFLAGS="-Wl,-rpath /usr/local/lib"
